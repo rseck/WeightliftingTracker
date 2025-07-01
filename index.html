@@ -72,11 +72,14 @@
         import { getFirestore, doc, onSnapshot, collection, addDoc, query, getDocs, deleteDoc, updateDoc, where, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const statusPrompt = document.getElementById('status-prompt');
-        let appInitialized = false;
 
-        function main() {
-            appInitialized = true;
+        /**
+         * This is the main entry point for the application.
+         * It will be called by the environment once all necessary resources (like Firebase config) are ready.
+         */
+        function startApp() {
             // --- Firebase and App Config ---
+            // These variables are guaranteed to be available by the time this function is called.
             const firebaseConfig = JSON.parse(__firebase_config);
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             const token = __initial_auth_token;
@@ -456,26 +459,10 @@
             updateThemeIcons();
         }
 
-        // --- Polling to Start the App ---
-        const appInitInterval = setInterval(() => {
-            if (typeof __firebase_config !== 'undefined' && typeof __initial_auth_token !== 'undefined') {
-                clearInterval(appInitInterval);
-                try {
-                    main();
-                } catch (e) {
-                    console.error("Failed to initialize the application:", e);
-                    statusPrompt.innerHTML = `<p class="text-red-500">A critical error occurred. Please refresh.</p>`;
-                }
-            }
-        }, 100);
+        // --- App Initialization ---
+        // The environment will call this function when all resources are ready.
+        window.onCanvasReady = startApp;
 
-        // Add a timeout for user feedback
-        const initTimeout = setTimeout(() => {
-            if (!appInitialized) {
-                clearInterval(appInitInterval);
-                statusPrompt.innerHTML = `<p class="text-red-500">Application failed to load in time. Please check your connection and refresh.</p>`;
-            }
-        }, 15000); // 15 seconds
     </script>
 </body>
 </html>
