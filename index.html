@@ -52,7 +52,7 @@
         
         <div id="status-prompt" class="text-center py-16">
             <p class="text-gray-600 dark:text-gray-400 text-xl">Please log in to continue.</p>
-             <button id="login-btn" class="mt-4 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-md transition duration-300">Log In</button>
+             <button id="login-btn" class="mt-4 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-md transition duration-300 opacity-50 cursor-not-allowed" disabled>Log In</button>
         </div>
     </div>
 
@@ -187,13 +187,14 @@
                       <p>Please update the Auth0 domain and client ID in the script with your own credentials to enable login.</p>
                     </div>
                 `;
-                loginBtn.disabled = true;
-                loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 return;
             }
 
             try {
                 auth0Client = await auth0.createAuth0Client(auth0Config);
+                // Enable the login button ONLY after Auth0 client is ready
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             } catch (err) {
                 console.error("Error initializing Auth0 client:", err);
                 statusPrompt.innerHTML = `
@@ -207,15 +208,17 @@
                       <p class="mt-2 text-xs">Error details: ${err.message}</p>
                     </div>
                 `;
-                 loginBtn.disabled = true;
-                 loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
                  return; // Stop execution if auth0 fails
             }
 
             // Handle the redirect after login
             if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
-                await auth0Client.handleRedirectCallback();
-                window.history.replaceState({}, document.title, "/");
+                try {
+                    await auth0Client.handleRedirectCallback();
+                    window.history.replaceState({}, document.title, "/");
+                } catch(err) {
+                    console.error("Error handling redirect callback", err);
+                }
             }
 
             // Update the UI based on the authentication state
@@ -226,9 +229,9 @@
         window.addEventListener('load', configureApp);
 
         loginBtn.addEventListener('click', async () => {
+            // This check is now a fallback, but the button should be disabled until auth0Client is ready.
             if (!auth0Client) {
-                console.error("Auth0 client not initialized. Cannot log in.");
-                statusPrompt.querySelector('p').textContent = "Authentication service is initializing, please wait...";
+                console.error("Login clicked, but Auth0 client not ready.");
                 return;
             }
             await auth0Client.loginWithRedirect();
@@ -460,7 +463,7 @@
                 const date = dateInput.value;
                 if (date) { addWeightRecord(exerciseId, repMaxId, weight, date); weightInput.value = ''; }
             });
-            const handleRecordEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); addRecordBtn.click(); } };
+            const handleRecordEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); addRepMaxBtn.click(); } };
             weightInput.addEventListener('keydown', handleRecordEnter);
             dateInput.addEventListener('keydown', handleRecordEnter);
             section.querySelector('.delete-rep-max-btn').addEventListener('click', () => deleteRepMax(exerciseId, repMaxId, repMaxData.reps));
