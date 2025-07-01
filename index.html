@@ -115,7 +115,7 @@
         // --- Main Application Logic ---
         window.addEventListener('load', async () => {
             // Check if the Auth0 configuration is still using placeholder values.
-            if (auth0Config.domain === "dev-ecsit0kkov2z311o.us.auth0.com" || auth0Config.clientId === "fa6eFzxdI0RTCqokzvAWHvUZCGMdonFU") {
+            if (auth0Config.domain === "YOUR_AUTH0_DOMAIN" || auth0Config.clientId === "YOUR_AUTH0_CLIENT_ID") {
                 statusPrompt.innerHTML = `
                     <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-md mx-auto rounded-r-lg" role="alert">
                       <p class="font-bold">Configuration Needed</p>
