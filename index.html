@@ -62,7 +62,7 @@
             <h3 id="modal-title" class="text-lg font-bold mb-4 text-gray-900 dark:text-white">Confirm Action</h3>
             <p id="modal-text" class="mb-6 text-gray-600 dark:text-gray-300">Are you sure?</p>
             <div class="flex justify-end gap-4">
-                <button id="modal-cancel-btn" class="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">Cancel</button>
+                <button id="modal-cancel-btn" class="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">Confirm</button>
                 <button id="modal-confirm-btn" class="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white transition-colors">Confirm</button>
             </div>
         </div>
@@ -88,7 +88,7 @@
         const modalConfirmBtn = document.getElementById('modal-confirm-btn');
         const modalCancelBtn = document.getElementById('modal-cancel-btn');
         const loginBtn = document.getElementById('login-btn');
-        
+
         // --- Global State ---
         let auth0Client = null;
         let currentUserId = null;
@@ -100,9 +100,6 @@
         let confirmCallback = null;
 
         // --- Auth0 Configuration ---
-        // =================================================================================
-        // === IMPORTANT: Replace these placeholder values with your Auth0 credentials. ===
-        // =================================================================================
         const auth0Config = {
             domain: "dev-ecsit0kkov2z311o.us.auth0.com", 
             clientId: "fa6eFzxdI0RTCqokzvAWHvUZCGMdonFU",
@@ -110,36 +107,47 @@
                 redirect_uri: window.location.origin
             }
         };
+
+        // --- Firebase Configuration ---
+        // =================================================================================
+        // === IMPORTANT: Replace these placeholder values with your Firebase config.    ===
+        // === Get this from your Firebase project settings.                             ===
+        // =================================================================================
+        // Your web app's Firebase configuration
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        const firebaseConfig = {
+          apiKey: "AIzaSyCDD_eZxFugX8TR_eKER566RWMZIEn8oOs",
+          authDomain: "weightliftingtracker-2f102.firebaseapp.com",
+          projectId: "weightliftingtracker-2f102",
+          storageBucket: "weightliftingtracker-2f102.firebasestorage.app",
+          messagingSenderId: "321817314500",
+          appId: "1:321817314500:web:a8c278697664e5b8f73591",
+          measurementId: "G-M2MBRM1EWT"
+        };
         // =================================================================================
 
         // --- Main Application Logic ---
         window.addEventListener('load', async () => {
-            // Check if the Auth0 configuration is still using placeholder values.
             if (auth0Config.domain === "YOUR_AUTH0_DOMAIN" || auth0Config.clientId === "YOUR_AUTH0_CLIENT_ID") {
                 statusPrompt.innerHTML = `
                     <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-md mx-auto rounded-r-lg" role="alert">
-                      <p class="font-bold">Configuration Needed</p>
+                      <p class="font-bold">Auth0 Configuration Needed</p>
                       <p>Please update the Auth0 domain and client ID in the script with your own credentials to enable login.</p>
                     </div>
                 `;
                 loginBtn.disabled = true;
                 loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                return; // Stop execution if not configured.
+                return;
             }
 
             try {
                 auth0Client = await auth0.createAuth0Client(auth0Config);
-
-                // Handle the redirect after login
                 if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
                     await auth0Client.handleRedirectCallback();
                     window.history.replaceState({}, document.title, "/");
                 }
-
                 await updateUI();
-                
                 loginBtn.addEventListener('click', () => auth0Client.loginWithRedirect());
-                
             } catch (err) {
                 console.error("Error initializing Auth0 client", err);
                 statusPrompt.innerHTML = `<p class="text-red-500">Error initializing authentication: ${err.message}. Please check your Auth0 configuration and refresh.</p>`;
@@ -148,19 +156,40 @@
 
         const updateUI = async () => {
             const isAuthenticated = await auth0Client.isAuthenticated();
-            
-            if (isAuthenticated) {
-                const user = await auth0Client.getUser();
-                currentUserId = user.sub; // Use the 'sub' claim as a stable user ID
 
-                // Initialize Firebase AFTER getting the user ID
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
+            if (isAuthenticated) {
+                // Check for Firebase config placeholders *after* login
+                if (firebaseConfig.projectId === "YOUR_PROJECT_ID" || firebaseConfig.apiKey === "YOUR_API_KEY") {
+                    appContent.innerHTML = `
+                        <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-2xl mx-auto rounded-r-lg" role="alert">
+                          <p class="font-bold">Firebase Configuration Needed</p>
+                          <p>You are logged in, but the app can't connect to the database. Please update the Firebase configuration object in the script.</p>
+                        </div>
+                    `;
+                    appContent.classList.remove('hidden');
+                    statusPrompt.classList.add('hidden');
+                    authContainer.innerHTML = ''; // Hide auth container as well
+                    return;
+                }
+
+                const user = await auth0Client.getUser();
+                currentUserId = user.sub;
+
+                // Initialize Firebase
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                } catch (err) {
+                     console.error("Error initializing Firebase", err);
+                     appContent.innerHTML = `<p class="text-red-500 text-center">Error connecting to the database: ${err.message}.</p>`;
+                     appContent.classList.remove('hidden');
+                     statusPrompt.classList.add('hidden');
+                     return;
+                }
 
                 appContent.classList.remove('hidden');
                 statusPrompt.classList.add('hidden');
-                
+
                 authContainer.innerHTML = `
                     <div class="flex items-center gap-3">
                         <img src="${user.picture}" alt="${user.name}" class="w-8 h-8 rounded-full">
@@ -217,7 +246,7 @@
                 sunIcon.classList.remove('hidden');
             }
         }
-        
+
         // --- Event Listeners ---
         themeToggleButton.addEventListener('click', () => {
             document.documentElement.classList.toggle('dark');
@@ -256,6 +285,8 @@
 
         function loadExercises() {
             if (!currentUserId || !db) return;
+            // Clear existing exercises before loading new ones
+            exercisesContainer.innerHTML = '';
             unsubscribeExercises();
             const exercisesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`), orderBy("createdAt", "asc"));
             unsubscribeExercises = onSnapshot(exercisesQuery, (snapshot) => {
