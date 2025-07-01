@@ -119,51 +119,6 @@
           measurementId: "G-M2MBRM1EWT"
         };
 
-        // --- Main Application Logic ---
-        window.addEventListener('load', async () => {
-            if (auth0Config.domain === "YOUR_AUTH0_DOMAIN" || auth0Config.clientId === "YOUR_AUTH0_CLIENT_ID") {
-                statusPrompt.innerHTML = `
-                    <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-md mx-auto rounded-r-lg" role="alert">
-                      <p class="font-bold">Auth0 Configuration Needed</p>
-                      <p>Please update the Auth0 domain and client ID in the script with your own credentials to enable login.</p>
-                    </div>
-                `;
-                loginBtn.disabled = true;
-                loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                return;
-            }
-
-            try {
-                auth0Client = await auth0.createAuth0Client(auth0Config);
-
-                // The login button is now guaranteed to work if Auth0 initializes successfully.
-                loginBtn.addEventListener('click', () => auth0Client.loginWithRedirect());
-
-                if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
-                    await auth0Client.handleRedirectCallback();
-                    window.history.replaceState({}, document.title, "/");
-                }
-
-                await updateUI();
-
-            } catch (err) {
-                console.error("Error initializing Auth0 client:", err);
-                statusPrompt.innerHTML = `
-                    <div class="bg-red-100 dark:bg-red-900 border-l-4 border-red-500 text-red-700 dark:text-red-200 p-4 max-w-lg mx-auto rounded-r-lg text-left" role="alert">
-                      <p class="font-bold">Auth0 Initialization Failed</p>
-                      <p class="mt-2">This is usually due to a configuration mismatch.</p>
-                      <ul class="list-disc list-inside mt-2 text-sm">
-                        <li>Ensure your <strong>Auth0 Domain</strong> and <strong>Client ID</strong> are correct in the script.</li>
-                        <li>In your Auth0 Application Settings, check that <strong>'${window.location.origin}'</strong> is in the <strong>'Allowed Callback URLs'</strong> field.</li>
-                      </ul>
-                      <p class="mt-2 text-xs">Error details: ${err.message}</p>
-                    </div>
-                `;
-                 loginBtn.disabled = true;
-                 loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            }
-        });
-
         const updateUI = async () => {
             const isAuthenticated = await auth0Client.isAuthenticated();
 
@@ -223,6 +178,62 @@
             }
         };
 
+        // --- Main Application Logic ---
+        const configureApp = async () => {
+            if (auth0Config.domain === "YOUR_AUTH0_DOMAIN" || auth0Config.clientId === "YOUR_AUTH0_CLIENT_ID") {
+                statusPrompt.innerHTML = `
+                    <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-md mx-auto rounded-r-lg" role="alert">
+                      <p class="font-bold">Auth0 Configuration Needed</p>
+                      <p>Please update the Auth0 domain and client ID in the script with your own credentials to enable login.</p>
+                    </div>
+                `;
+                loginBtn.disabled = true;
+                loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                return;
+            }
+
+            try {
+                auth0Client = await auth0.createAuth0Client(auth0Config);
+            } catch (err) {
+                console.error("Error initializing Auth0 client:", err);
+                statusPrompt.innerHTML = `
+                    <div class="bg-red-100 dark:bg-red-900 border-l-4 border-red-500 text-red-700 dark:text-red-200 p-4 max-w-lg mx-auto rounded-r-lg text-left" role="alert">
+                      <p class="font-bold">Auth0 Initialization Failed</p>
+                      <p class="mt-2">This is usually due to a configuration mismatch.</p>
+                      <ul class="list-disc list-inside mt-2 text-sm">
+                        <li>Ensure your <strong>Auth0 Domain</strong> and <strong>Client ID</strong> are correct in the script.</li>
+                        <li>In your Auth0 Application Settings, check that <strong>'${window.location.origin}'</strong> is in the <strong>'Allowed Callback URLs'</strong> field.</li>
+                      </ul>
+                      <p class="mt-2 text-xs">Error details: ${err.message}</p>
+                    </div>
+                `;
+                 loginBtn.disabled = true;
+                 loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                 return; // Stop execution if auth0 fails
+            }
+
+            // Handle the redirect after login
+            if (window.location.search.includes("code=") && window.location.search.includes("state=")) {
+                await auth0Client.handleRedirectCallback();
+                window.history.replaceState({}, document.title, "/");
+            }
+
+            // Update the UI based on the authentication state
+            await updateUI();
+        };
+
+        // --- Attach Event Listeners ---
+        window.addEventListener('load', configureApp);
+
+        loginBtn.addEventListener('click', async () => {
+            if (!auth0Client) {
+                console.error("Auth0 client not initialized. Cannot log in.");
+                statusPrompt.querySelector('p').textContent = "Authentication service is initializing, please wait...";
+                return;
+            }
+            await auth0Client.loginWithRedirect();
+        });
+
         // --- Modal Functions ---
         function showConfirmationModal(title, text, onConfirm) {
             modalTitle.textContent = title;
@@ -255,7 +266,6 @@
             }
         }
 
-        // --- Event Listeners ---
         themeToggleButton.addEventListener('click', () => {
             document.documentElement.classList.toggle('dark');
             localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
@@ -444,4 +454,100 @@
             const addRecordBtn = section.querySelector('.add-record-btn');
             const weightInput = section.querySelector('.weight-input');
             const dateInput = section.querySelector('.date-input');
-            addRecordBtn.addEventListe
+            addRecordBtn.addEventListener('click', () => {
+                const weight = parseFloat(weightInput.value);
+                if (isNaN(weight) || weight <= 0) { shakeElement(weightInput); return; }
+                const date = dateInput.value;
+                if (date) { addWeightRecord(exerciseId, repMaxId, weight, date); weightInput.value = ''; }
+            });
+            const handleRecordEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); addRecordBtn.click(); } };
+            weightInput.addEventListener('keydown', handleRecordEnter);
+            dateInput.addEventListener('keydown', handleRecordEnter);
+            section.querySelector('.delete-rep-max-btn').addEventListener('click', () => deleteRepMax(exerciseId, repMaxId, repMaxData.reps));
+            return section;
+        }
+
+        async function deleteRepMax(exerciseId, repMaxId, repCount) {
+            if (!currentUserId || !db) return;
+            showConfirmationModal(`Delete ${repCount}-Rep Max`, 'Are you sure you want to delete this rep max tracker?', async () => {
+                try { await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId)); }
+                catch (error) { console.error("Error deleting rep max: ", error); }
+            });
+        }
+
+        async function addWeightRecord(exerciseId, repMaxId, weight, date) {
+            if (!currentUserId || !db) return;
+            const repMaxDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId);
+            try {
+                const docSnap = await getDoc(repMaxDocRef);
+                if (docSnap.exists()) {
+                    const currentHistory = docSnap.data().history || [];
+                    const newHistory = [...currentHistory, { weight, date }];
+                    newHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    await updateDoc(repMaxDocRef, { history: newHistory });
+                }
+            } catch (error) { console.error("Error adding weight record: ", error); }
+        }
+
+        // --- Charting Functions ---
+        function getChartThemeOptions() {
+            const isDarkMode = document.documentElement.classList.contains('dark');
+            return { gridColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)', ticksColor: isDarkMode ? '#d1d5db' : '#374151', titleColor: isDarkMode ? '#d1d5db' : '#374151' };
+        }
+
+        function updateAllChartThemes() {
+            const themeOptions = getChartThemeOptions();
+            for (const chartId in chartInstances) {
+                const chart = chartInstances[chartId];
+                if(chart) {
+                    chart.options.scales.y.grid.color = themeOptions.gridColor;
+                    chart.options.scales.y.ticks.color = themeOptions.ticksColor;
+                    chart.options.scales.y.title.color = themeOptions.titleColor;
+                    chart.options.scales.x.grid.color = themeOptions.gridColor;
+                    chart.options.scales.x.ticks.color = themeOptions.ticksColor;
+                    chart.update();
+                }
+            }
+        }
+
+        function createOrUpdateChart(chartId, history) {
+            const ctx = document.getElementById(chartId)?.getContext('2d');
+            if (!ctx) return;
+            const recentHistory = history.slice(-10);
+            const labels = recentHistory.map(entry => entry.date);
+            const data = recentHistory.map(entry => entry.weight);
+            const themeOptions = getChartThemeOptions();
+            if (chartInstances[chartId]) {
+                chartInstances[chartId].data.labels = labels;
+                chartInstances[chartId].data.datasets[0].data = data;
+                chartInstances[chartId].update();
+                return;
+            }
+            chartInstances[chartId] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Weight (kg)', data: data, backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: 'rgba(56, 189, 248, 1)', borderWidth: 2, tension: 0.1, pointBackgroundColor: 'rgba(56, 189, 248, 1)', pointRadius: 4 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: false, grid: { color: themeOptions.gridColor }, ticks: { color: themeOptions.ticksColor }, title: { display: true, text: 'Weight (kg)', color: themeOptions.titleColor } },
+                        x: { grid: { color: themeOptions.gridColor }, ticks: { color: themeOptions.ticksColor } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // --- Initial UI Setup ---
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        updateThemeIcons();
+
+    </script>
+</body>
+</html>
