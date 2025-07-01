@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = { darkMode: 'class' }
-        document.documentElement.classList.add('dark');
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -51,7 +50,7 @@
         </main>
         
         <div id="status-prompt" class="text-center py-16">
-            <p class="text-gray-600 dark:text-gray-400 text-xl">Authenticating...</p>
+            <p class="text-gray-600 dark:text-gray-400 text-xl">Waiting for authentication...</p>
         </div>
     </div>
 
@@ -69,7 +68,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, collection, addDoc, query, getDocs, deleteDoc, updateDoc, where, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase and App Config ---
@@ -85,7 +84,6 @@
         let unsubscribeExercises = () => {};
         const unsubscribeRepMaxes = {};
         let chartInstances = {};
-        let authUnsubscribe = null;
 
         // --- DOM Elements ---
         const appContent = document.getElementById('app-content');
@@ -99,17 +97,16 @@
         const moonIcon = document.getElementById('theme-icon-moon');
         
         // --- Authentication ---
-        authUnsubscribe = onAuthStateChanged(auth, user => {
+        onAuthStateChanged(auth, user => {
             if (user) {
                 // User is signed in.
                 currentUserId = user.uid;
                 appContent.classList.remove('hidden');
                 statusPrompt.classList.add('hidden');
                 
-                const userIdentifier = user.isAnonymous ? 'Guest' : `UID: ${user.uid.substring(0, 8)}...`;
                 authContainer.innerHTML = `
                     <div class="flex items-center gap-2">
-                        <span class="text-sm text-gray-500 dark:text-gray-400">${userIdentifier}</span>
+                        <span class="text-sm text-gray-500 dark:text-gray-400">UID: ${user.uid.substring(0, 8)}...</span>
                         <button id="logout-btn" class="text-sm bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-2 rounded-md transition duration-300">Logout</button>
                     </div>
                 `;
@@ -121,7 +118,7 @@
                 currentUserId = null;
                 appContent.classList.add('hidden');
                 statusPrompt.classList.remove('hidden');
-                statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Please refresh to sign in.</p>';
+                statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Signed out. Please refresh to sign in again.</p>';
                 authContainer.innerHTML = '';
                 
                 // Clear UI and unsubscribe from listeners
@@ -132,20 +129,31 @@
             }
         });
 
-        // Initial sign-in attempt on page load.
-        (async () => {
+        // Function to attempt sign-in.
+        const attemptSignIn = async () => {
             try {
+                // This special token is provided by the environment.
                 const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (token) {
                     await signInWithCustomToken(auth, token);
                 } else {
-                    await signInAnonymously(auth);
+                    // If the token isn't available yet, we'll wait and try again.
+                    // This is better than failing with an anonymous sign-in.
+                    console.log("Auth token not available yet, will retry...");
                 }
             } catch (error) {
                 console.error("Authentication error:", error);
                 statusPrompt.innerHTML = `<p class="text-red-500">Authentication failed. Please refresh the page.</p>`;
             }
-        })();
+        };
+
+        // Check for the token periodically until it's available.
+        const authInterval = setInterval(() => {
+            if (typeof __initial_auth_token !== 'undefined') {
+                clearInterval(authInterval);
+                attemptSignIn();
+            }
+        }, 100); // Check every 100ms
 
         // --- Modal ---
         const modal = document.getElementById('confirmation-modal');
