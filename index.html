@@ -114,18 +114,24 @@
                 
                 loadExercises();
             } else {
-                // User is signed out.
-                currentUserId = null;
-                appContent.classList.add('hidden');
-                statusPrompt.classList.remove('hidden');
-                statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Signed out. Please refresh to sign in again.</p>';
-                authContainer.innerHTML = '';
-                
-                // Clear UI and unsubscribe from listeners
-                unsubscribeExercises();
-                Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
-                exercisesContainer.innerHTML = '';
-                chartInstances = {};
+                // This block runs on initial page load (when currentUserId is null) and on an explicit sign-out.
+                // We only want to update the UI to "Signed Out" if a user was previously logged in.
+                if (currentUserId) {
+                    // A user was signed in, but now is not. This is a sign-out event.
+                    currentUserId = null;
+                    appContent.classList.add('hidden');
+                    statusPrompt.classList.remove('hidden');
+                    statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Signed out. Please refresh to sign in again.</p>';
+                    authContainer.innerHTML = '';
+                    
+                    // Clear UI and unsubscribe from listeners
+                    unsubscribeExercises();
+                    Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
+                    exercisesContainer.innerHTML = '';
+                    chartInstances = {};
+                }
+                // If currentUserId is already null, we do nothing. This prevents the "Waiting for authentication..." 
+                // message from being incorrectly overwritten on the initial page load.
             }
         });
 
@@ -137,8 +143,7 @@
                 if (token) {
                     await signInWithCustomToken(auth, token);
                 } else {
-                    // If the token isn't available yet, we'll wait and try again.
-                    // This is better than failing with an anonymous sign-in.
+                    // If the token isn't available yet, the interval will try again.
                     console.log("Auth token not available yet, will retry...");
                 }
             } catch (error) {
