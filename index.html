@@ -71,526 +71,411 @@
         import { getAuth, onAuthStateChanged, signInWithCustomToken, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, collection, addDoc, query, getDocs, deleteDoc, updateDoc, where, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase and App Config ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY", authDomain: "YOUR_AUTH_DOMAIN", projectId: "YOUR_PROJECT_ID" };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        // --- Global State ---
-        let currentUserId = null;
-        let unsubscribeExercises = () => {};
-        const unsubscribeRepMaxes = {};
-        let chartInstances = {};
-
-        // --- DOM Elements ---
-        const appContent = document.getElementById('app-content');
         const statusPrompt = document.getElementById('status-prompt');
-        const authContainer = document.getElementById('auth-container');
-        const exercisesContainer = document.getElementById('exercises-container');
-        const addExerciseBtn = document.getElementById('add-exercise-btn');
-        const newExerciseNameInput = document.getElementById('new-exercise-name');
-        const themeToggleButton = document.getElementById('theme-toggle');
-        const sunIcon = document.getElementById('theme-icon-sun');
-        const moonIcon = document.getElementById('theme-icon-moon');
-        
-        // --- Authentication ---
-        onAuthStateChanged(auth, user => {
-            if (user) {
-                // User is signed in.
-                currentUserId = user.uid;
-                appContent.classList.remove('hidden');
-                statusPrompt.classList.add('hidden');
-                
-                authContainer.innerHTML = `
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-gray-500 dark:text-gray-400">UID: ${user.uid.substring(0, 8)}...</span>
-                        <button id="logout-btn" class="text-sm bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-2 rounded-md transition duration-300">Logout</button>
-                    </div>
-                `;
-                document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
-                
-                loadExercises();
-            } else {
-                // This block runs on initial page load (when currentUserId is null) and on an explicit sign-out.
-                // We only want to update the UI to "Signed Out" if a user was previously logged in.
-                if (currentUserId) {
-                    // A user was signed in, but now is not. This is a sign-out event.
-                    currentUserId = null;
-                    appContent.classList.add('hidden');
-                    statusPrompt.classList.remove('hidden');
-                    statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Signed out. Please refresh to sign in again.</p>';
-                    authContainer.innerHTML = '';
-                    
-                    // Clear UI and unsubscribe from listeners
-                    unsubscribeExercises();
-                    Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
-                    exercisesContainer.innerHTML = '';
-                    chartInstances = {};
-                }
-                // If currentUserId is already null, we do nothing. This prevents the "Waiting for authentication..." 
-                // message from being incorrectly overwritten on the initial page load.
-            }
-        });
+        let appInitialized = false;
 
-        // Function to attempt sign-in.
-        const attemptSignIn = async () => {
-            try {
-                // This special token is provided by the environment.
-                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (token) {
-                    await signInWithCustomToken(auth, token);
+        function main() {
+            appInitialized = true;
+            // --- Firebase and App Config ---
+            const firebaseConfig = JSON.parse(__firebase_config);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const token = __initial_auth_token;
+
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+
+            // --- Global State ---
+            let currentUserId = null;
+            let unsubscribeExercises = () => {};
+            const unsubscribeRepMaxes = {};
+            let chartInstances = {};
+
+            // --- DOM Elements ---
+            const appContent = document.getElementById('app-content');
+            const authContainer = document.getElementById('auth-container');
+            const exercisesContainer = document.getElementById('exercises-container');
+            const addExerciseBtn = document.getElementById('add-exercise-btn');
+            const newExerciseNameInput = document.getElementById('new-exercise-name');
+            const themeToggleButton = document.getElementById('theme-toggle');
+            const sunIcon = document.getElementById('theme-icon-sun');
+            const moonIcon = document.getElementById('theme-icon-moon');
+            const modal = document.getElementById('confirmation-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalText = document.getElementById('modal-text');
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            let confirmCallback = null;
+            
+            // --- Authentication Logic ---
+            onAuthStateChanged(auth, user => {
+                if (user) {
+                    currentUserId = user.uid;
+                    appContent.classList.remove('hidden');
+                    statusPrompt.classList.add('hidden');
+                    authContainer.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-500 dark:text-gray-400">UID: ${user.uid.substring(0, 8)}...</span>
+                            <button id="logout-btn" class="text-sm bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-2 rounded-md transition duration-300">Logout</button>
+                        </div>
+                    `;
+                    document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+                    loadExercises();
                 } else {
-                    // If the token isn't available yet, the interval will try again.
-                    console.log("Auth token not available yet, will retry...");
+                    if (currentUserId) {
+                        currentUserId = null;
+                        appContent.classList.add('hidden');
+                        statusPrompt.classList.remove('hidden');
+                        statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Signed out. Please refresh to sign in again.</p>';
+                        authContainer.innerHTML = '';
+                        unsubscribeExercises();
+                        Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
+                        exercisesContainer.innerHTML = '';
+                        chartInstances = {};
+                    }
                 }
-            } catch (error) {
+            });
+
+            signInWithCustomToken(auth, token).catch(error => {
                 console.error("Authentication error:", error);
                 statusPrompt.innerHTML = `<p class="text-red-500">Authentication failed. Please refresh the page.</p>`;
+            });
+
+            // --- Modal Functions ---
+            function showConfirmationModal(title, text, onConfirm) {
+                modalTitle.textContent = title;
+                modalText.textContent = text;
+                confirmCallback = onConfirm;
+                modal.classList.remove('hidden');
             }
-        };
+            modalCancelBtn.addEventListener('click', () => {
+                modal.classList.add('hidden');
+                confirmCallback = null;
+            });
+            modalConfirmBtn.addEventListener('click', () => {
+                if (confirmCallback) confirmCallback();
+                modal.classList.add('hidden');
+                confirmCallback = null;
+            });
 
-        // Check for the token periodically until it's available.
-        const authInterval = setInterval(() => {
-            if (typeof __initial_auth_token !== 'undefined') {
-                clearInterval(authInterval);
-                attemptSignIn();
+            // --- UI Helper Functions ---
+            function shakeElement(element) {
+                element.classList.add('shake');
+                setTimeout(() => element.classList.remove('shake'), 820);
             }
-        }, 100); // Check every 100ms
-
-        // --- Modal ---
-        const modal = document.getElementById('confirmation-modal');
-        const modalTitle = document.getElementById('modal-title');
-        const modalText = document.getElementById('modal-text');
-        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-        const modalCancelBtn = document.getElementById('modal-cancel-btn');
-        let confirmCallback = null;
-
-        function showConfirmationModal(title, text, onConfirm) {
-            modalTitle.textContent = title;
-            modalText.textContent = text;
-            confirmCallback = onConfirm;
-            modal.classList.remove('hidden');
-        }
-
-        modalCancelBtn.addEventListener('click', () => {
-            modal.classList.add('hidden');
-            confirmCallback = null;
-        });
-
-        modalConfirmBtn.addEventListener('click', () => {
-            if (confirmCallback) confirmCallback();
-            modal.classList.add('hidden');
-            confirmCallback = null;
-        });
-
-        function shakeElement(element) {
-            element.classList.add('shake');
-            setTimeout(() => element.classList.remove('shake'), 820);
-        }
-
-        // --- Theme Toggle ---
-        function updateThemeIcons() {
-            if (document.documentElement.classList.contains('dark')) {
-                moonIcon.classList.remove('hidden');
-                sunIcon.classList.add('hidden');
-            } else {
-                moonIcon.classList.add('hidden');
-                sunIcon.classList.remove('hidden');
+            function updateThemeIcons() {
+                if (document.documentElement.classList.contains('dark')) {
+                    moonIcon.classList.remove('hidden');
+                    sunIcon.classList.add('hidden');
+                } else {
+                    moonIcon.classList.add('hidden');
+                    sunIcon.classList.remove('hidden');
+                }
             }
-        }
-        
-        themeToggleButton.addEventListener('click', () => {
-            document.documentElement.classList.toggle('dark');
-            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
-            updateThemeIcons();
-            updateAllChartThemes();
-        });
-
-        // --- Event Listeners ---
-        addExerciseBtn.addEventListener('click', addExercise);
-        newExerciseNameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addExerciseBtn.click();
-            }
-        });
-
-        // --- Firestore Functions ---
-
-        async function addExercise() {
-            if (!currentUserId) return;
-            const exerciseName = newExerciseNameInput.value.trim();
-            if (!exerciseName) {
-                shakeElement(newExerciseNameInput);
-                return;
-            }
-
-            const exerciseRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`);
-            const q = query(exerciseRef, where("name_lowercase", "==", exerciseName.toLowerCase()));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-                shakeElement(newExerciseNameInput);
-                return;
-            }
-
-            try {
-                await addDoc(exerciseRef, {
-                    name: exerciseName,
-                    name_lowercase: exerciseName.toLowerCase(),
-                    createdAt: new Date()
-                });
-                newExerciseNameInput.value = '';
-            } catch (error) {
-                console.error("Error adding exercise: ", error);
-            }
-        }
-
-        function loadExercises() {
-            if (!currentUserId) return;
-            unsubscribeExercises(); // Unsubscribe from previous user's data if any
-
-            const exercisesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`), orderBy("createdAt", "asc"));
             
-            unsubscribeExercises = onSnapshot(exercisesQuery, (snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    const docId = change.doc.id;
-                    if (change.type === "added") {
-                        if (!document.getElementById(`exercise-${docId}`)) {
+            // --- Event Listeners ---
+            themeToggleButton.addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+                localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+                updateThemeIcons();
+                updateAllChartThemes();
+            });
+            addExerciseBtn.addEventListener('click', addExercise);
+            newExerciseNameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addExerciseBtn.click();
+                }
+            });
+
+            // --- Firestore Functions ---
+            async function addExercise() {
+                if (!currentUserId) return;
+                const exerciseName = newExerciseNameInput.value.trim();
+                if (!exerciseName) {
+                    shakeElement(newExerciseNameInput);
+                    return;
+                }
+                const exerciseRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`);
+                const q = query(exerciseRef, where("name_lowercase", "==", exerciseName.toLowerCase()));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) {
+                    shakeElement(newExerciseNameInput);
+                    return;
+                }
+                try {
+                    await addDoc(exerciseRef, { name: exerciseName, name_lowercase: exerciseName.toLowerCase(), createdAt: new Date() });
+                    newExerciseNameInput.value = '';
+                } catch (error) { console.error("Error adding exercise: ", error); }
+            }
+
+            function loadExercises() {
+                if (!currentUserId) return;
+                unsubscribeExercises();
+                const exercisesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`), orderBy("createdAt", "asc"));
+                unsubscribeExercises = onSnapshot(exercisesQuery, (snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        const docId = change.doc.id;
+                        if (change.type === "added" && !document.getElementById(`exercise-${docId}`)) {
                             createExerciseCard(docId, change.doc.data().name);
                             loadRepMaxes(docId);
                         }
-                    }
-                    if (change.type === "removed") {
-                        const card = document.getElementById(`exercise-${docId}`);
-                        if (card) card.remove();
-                        if (unsubscribeRepMaxes[docId]) {
-                            unsubscribeRepMaxes[docId]();
-                            delete unsubscribeRepMaxes[docId];
-                        }
-                        Object.keys(chartInstances).forEach(key => {
-                            if (key.startsWith(docId) && chartInstances[key]) {
-                                chartInstances[key].destroy();
-                                delete chartInstances[key];
+                        if (change.type === "removed") {
+                            const card = document.getElementById(`exercise-${docId}`);
+                            if (card) card.remove();
+                            if (unsubscribeRepMaxes[docId]) {
+                                unsubscribeRepMaxes[docId]();
+                                delete unsubscribeRepMaxes[docId];
                             }
-                        });
-                    }
+                            Object.keys(chartInstances).forEach(key => {
+                                if (key.startsWith(docId) && chartInstances[key]) {
+                                    chartInstances[key].destroy();
+                                    delete chartInstances[key];
+                                }
+                            });
+                        }
+                    });
                 });
-            });
-        }
+            }
 
-        function createExerciseCard(exerciseId, exerciseName) {
-            const card = document.createElement('div');
-            card.className = 'bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col';
-            card.id = `exercise-${exerciseId}`;
-
-            const chevronDownIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>`;
-            const chevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>`;
-
-            card.innerHTML = `
-                <div class="flex justify-between items-center cursor-pointer" id="exercise-header-${exerciseId}">
-                    <h3 class="text-xl font-bold text-cyan-600 dark:text-cyan-400">${exerciseName}</h3>
-                    <div class="flex items-center gap-2">
-                        <button class="delete-exercise-btn text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition duration-300 z-10" data-id="${exerciseId}">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                        <div class="toggle-icon-container">${chevronDownIcon}</div>
+            function createExerciseCard(exerciseId, exerciseName) {
+                const card = document.createElement('div');
+                card.className = 'bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col';
+                card.id = `exercise-${exerciseId}`;
+                const chevronDownIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>`;
+                const chevronUpIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>`;
+                card.innerHTML = `
+                    <div class="flex justify-between items-center cursor-pointer" id="exercise-header-${exerciseId}">
+                        <h3 class="text-xl font-bold text-cyan-600 dark:text-cyan-400">${exerciseName}</h3>
+                        <div class="flex items-center gap-2">
+                            <button class="delete-exercise-btn text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition duration-300 z-10" data-id="${exerciseId}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                            <div class="toggle-icon-container">${chevronDownIcon}</div>
+                        </div>
                     </div>
-                </div>
-                <div id="collapsible-content-${exerciseId}" class="collapsible-content hidden mt-4">
-                    <div id="rep-max-container-${exerciseId}" class="space-y-4 mb-4"></div>
-                    <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
-                         <h4 class="text-lg font-semibold mb-2 text-gray-800 dark:text-white">Add New Rep Max</h4>
-                         <div class="flex flex-col sm:flex-row gap-2">
-                            <input type="number" class="rep-max-input flex-grow bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="e.g., 3">
-                            <button class="add-rep-max-btn bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md transition duration-300" data-id="${exerciseId}">Add</button>
-                         </div>
+                    <div id="collapsible-content-${exerciseId}" class="collapsible-content hidden mt-4">
+                        <div id="rep-max-container-${exerciseId}" class="space-y-4 mb-4"></div>
+                        <div class="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700">
+                             <h4 class="text-lg font-semibold mb-2 text-gray-800 dark:text-white">Add New Rep Max</h4>
+                             <div class="flex flex-col sm:flex-row gap-2">
+                                <input type="number" class="rep-max-input flex-grow bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="e.g., 3">
+                                <button class="add-rep-max-btn bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-1 px-3 rounded-md transition duration-300" data-id="${exerciseId}">Add</button>
+                             </div>
+                        </div>
                     </div>
-                </div>
-            `;
-            exercisesContainer.appendChild(card);
+                `;
+                exercisesContainer.appendChild(card);
+                const header = card.querySelector(`#exercise-header-${exerciseId}`);
+                const collapsibleContent = card.querySelector(`#collapsible-content-${exerciseId}`);
+                const toggleIconContainer = card.querySelector('.toggle-icon-container');
+                header.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-exercise-btn')) return;
+                    collapsibleContent.classList.toggle('hidden');
+                    toggleIconContainer.innerHTML = collapsibleContent.classList.contains('hidden') ? chevronDownIcon : chevronUpIcon;
+                });
+                card.querySelector('.delete-exercise-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteExercise(exerciseId, exerciseName);
+                });
+                const addRepMaxBtn = card.querySelector('.add-rep-max-btn');
+                const repMaxInput = card.querySelector('.rep-max-input');
+                addRepMaxBtn.addEventListener('click', () => addRepMax(exerciseId, repMaxInput));
+                repMaxInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRepMaxBtn.click(); } });
+            }
 
-            const header = card.querySelector(`#exercise-header-${exerciseId}`);
-            const collapsibleContent = card.querySelector(`#collapsible-content-${exerciseId}`);
-            const toggleIconContainer = card.querySelector('.toggle-icon-container');
-
-            header.addEventListener('click', (e) => {
-                if (e.target.closest('.delete-exercise-btn')) return;
-                collapsibleContent.classList.toggle('hidden');
-                toggleIconContainer.innerHTML = collapsibleContent.classList.contains('hidden') ? chevronDownIcon : chevronUpIcon;
-            });
-
-            card.querySelector('.delete-exercise-btn').addEventListener('click', (e) => {
-                e.stopPropagation();
-                deleteExercise(exerciseId, exerciseName);
-            });
-            
-            const addRepMaxBtn = card.querySelector('.add-rep-max-btn');
-            const repMaxInput = card.querySelector('.rep-max-input');
-
-            addRepMaxBtn.addEventListener('click', () => addRepMax(exerciseId, repMaxInput));
-            repMaxInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addRepMaxBtn.click();
-                }
-            });
-        }
-
-        async function deleteExercise(exerciseId, exerciseName) {
-            if (!currentUserId) return;
-            showConfirmationModal(
-                `Delete ${exerciseName}`,
-                'Are you sure you want to delete this exercise and all its data? This action cannot be undone.',
-                async () => {
+            async function deleteExercise(exerciseId, exerciseName) {
+                if (!currentUserId) return;
+                showConfirmationModal(`Delete ${exerciseName}`, 'Are you sure you want to delete this exercise and all its data? This action cannot be undone.', async () => {
                     try {
                         const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`));
                         const repMaxesSnapshot = await getDocs(repMaxesQuery);
                         const deletePromises = repMaxesSnapshot.docs.map(doc => deleteDoc(doc.ref));
                         await Promise.all(deletePromises);
                         await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises`, exerciseId));
-                    } catch (error) {
-                        console.error("Error deleting exercise: ", error);
+                    } catch (error) { console.error("Error deleting exercise: ", error); }
+                });
+            }
+
+            async function addRepMax(exerciseId, repMaxInput) {
+                if (!currentUserId) return;
+                const reps = parseInt(repMaxInput.value);
+                if (isNaN(reps) || reps <= 0) { shakeElement(repMaxInput); return; }
+                const repMaxRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`);
+                const q = query(repMaxRef, where("reps", "==", reps));
+                const querySnapshot = await getDocs(q);
+                if (!querySnapshot.empty) { shakeElement(repMaxInput); return; }
+                try {
+                    await addDoc(repMaxRef, { reps: reps, history: [] });
+                    repMaxInput.value = '';
+                } catch (error) { console.error("Error adding rep max: ", error); }
+            }
+
+            function loadRepMaxes(exerciseId) {
+                if (!currentUserId) return;
+                if (unsubscribeRepMaxes[exerciseId]) unsubscribeRepMaxes[exerciseId]();
+                const repMaxContainer = document.getElementById(`rep-max-container-${exerciseId}`);
+                const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`), orderBy("reps", "asc"));
+                unsubscribeRepMaxes[exerciseId] = onSnapshot(repMaxesQuery, (snapshot) => {
+                    const repMaxSections = new Set();
+                    snapshot.docChanges().forEach((change) => {
+                        const repMaxId = change.doc.id;
+                        const repMaxData = change.doc.data();
+                        const sectionId = `rep-max-section-${repMaxId}`;
+                        repMaxSections.add(sectionId);
+                        let section = document.getElementById(sectionId);
+                        if (change.type === "removed") { if (section) section.remove(); return; }
+                        if (!section) {
+                            section = createRepMaxSection(exerciseId, repMaxId, repMaxData);
+                            repMaxContainer.appendChild(section);
+                        }
+                        createOrUpdateChart(`chart-${exerciseId}-${repMaxId}`, repMaxData.history);
+                    });
+                    Array.from(repMaxContainer.children).forEach(child => { if (!repMaxSections.has(child.id)) { child.remove(); } });
+                });
+            }
+
+            function createRepMaxSection(exerciseId, repMaxId, repMaxData) {
+                const section = document.createElement('div');
+                section.className = 'bg-gray-100 dark:bg-gray-700 p-4 rounded-md';
+                section.id = `rep-max-section-${repMaxId}`;
+                const chartId = `chart-${exerciseId}-${repMaxId}`;
+                section.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-lg font-semibold text-gray-800 dark:text-white">${repMaxData.reps}-Rep Max</h4>
+                         <button class="delete-rep-max-btn text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition duration-300" data-rep-max-id="${repMaxId}">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div class="chart-container mb-4"><canvas id="${chartId}"></canvas></div>
+                    <div>
+                        <h5 class="text-md font-medium mb-2 text-gray-600 dark:text-gray-300">Log New Record</h5>
+                        <div class="flex flex-wrap gap-2 items-end">
+                            <input type="number" class="weight-input flex-grow min-w-[100px] bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Weight (kg)">
+                            <input type="date" class="date-input flex-shrink-0 bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <button class="add-record-btn flex-shrink-0 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-3 rounded-md transition duration-300">Log</button>
+                        </div>
+                    </div>
+                `;
+                section.querySelector('.date-input').valueAsDate = new Date();
+                const addRecordBtn = section.querySelector('.add-record-btn');
+                const weightInput = section.querySelector('.weight-input');
+                const dateInput = section.querySelector('.date-input');
+                addRecordBtn.addEventListener('click', () => {
+                    const weight = parseFloat(weightInput.value);
+                    if (isNaN(weight) || weight <= 0) { shakeElement(weightInput); return; }
+                    const date = dateInput.value;
+                    if (date) { addWeightRecord(exerciseId, repMaxId, weight, date); weightInput.value = ''; }
+                });
+                const handleRecordEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); addRecordBtn.click(); } };
+                weightInput.addEventListener('keydown', handleRecordEnter);
+                dateInput.addEventListener('keydown', handleRecordEnter);
+                section.querySelector('.delete-rep-max-btn').addEventListener('click', () => deleteRepMax(exerciseId, repMaxId, repMaxData.reps));
+                return section;
+            }
+
+            async function deleteRepMax(exerciseId, repMaxId, repCount) {
+                if (!currentUserId) return;
+                showConfirmationModal(`Delete ${repCount}-Rep Max`, 'Are you sure you want to delete this rep max tracker?', async () => {
+                    try { await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId)); } 
+                    catch (error) { console.error("Error deleting rep max: ", error); }
+                });
+            }
+
+            async function addWeightRecord(exerciseId, repMaxId, weight, date) {
+                if (!currentUserId) return;
+                const repMaxDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId);
+                try {
+                    const docSnap = await getDoc(repMaxDocRef);
+                    if (docSnap.exists()) {
+                        const currentHistory = docSnap.data().history || [];
+                        const newHistory = [...currentHistory, { weight, date }];
+                        newHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        await updateDoc(repMaxDocRef, { history: newHistory });
+                    }
+                } catch (error) { console.error("Error adding weight record: ", error); }
+            }
+
+            // --- Charting Functions ---
+            function getChartThemeOptions() {
+                const isDarkMode = document.documentElement.classList.contains('dark');
+                return { gridColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)', ticksColor: isDarkMode ? '#d1d5db' : '#374151', titleColor: isDarkMode ? '#d1d5db' : '#374151' };
+            }
+
+            function updateAllChartThemes() {
+                const themeOptions = getChartThemeOptions();
+                for (const chartId in chartInstances) {
+                    const chart = chartInstances[chartId];
+                    if(chart) {
+                        chart.options.scales.y.grid.color = themeOptions.gridColor;
+                        chart.options.scales.y.ticks.color = themeOptions.ticksColor;
+                        chart.options.scales.y.title.color = themeOptions.titleColor;
+                        chart.options.scales.x.grid.color = themeOptions.gridColor;
+                        chart.options.scales.x.ticks.color = themeOptions.ticksColor;
+                        chart.update();
                     }
                 }
-            );
-        }
-
-        async function addRepMax(exerciseId, repMaxInput) {
-            if (!currentUserId) return;
-            const reps = parseInt(repMaxInput.value);
-            if (isNaN(reps) || reps <= 0) {
-                shakeElement(repMaxInput);
-                return;
             }
 
-            const repMaxRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`);
-            const q = query(repMaxRef, where("reps", "==", reps));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-                shakeElement(repMaxInput);
-                return;
-            }
-
-            try {
-                await addDoc(repMaxRef, { reps: reps, history: [] });
-                repMaxInput.value = '';
-            } catch (error) {
-                console.error("Error adding rep max: ", error);
-            }
-        }
-
-        function loadRepMaxes(exerciseId) {
-            if (!currentUserId) return;
-            if (unsubscribeRepMaxes[exerciseId]) unsubscribeRepMaxes[exerciseId]();
-
-            const repMaxContainer = document.getElementById(`rep-max-container-${exerciseId}`);
-            const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`), orderBy("reps", "asc"));
-
-            unsubscribeRepMaxes[exerciseId] = onSnapshot(repMaxesQuery, (snapshot) => {
-                const repMaxSections = new Set();
-                snapshot.docChanges().forEach((change) => {
-                    const repMaxId = change.doc.id;
-                    const repMaxData = change.doc.data();
-                    const sectionId = `rep-max-section-${repMaxId}`;
-                    repMaxSections.add(sectionId);
-
-                    let section = document.getElementById(sectionId);
-                    if (change.type === "removed") {
-                        if (section) section.remove();
-                        return;
-                    }
-                    
-                    if (!section) {
-                        section = createRepMaxSection(exerciseId, repMaxId, repMaxData);
-                        repMaxContainer.appendChild(section);
-                    }
-                    
-                    createOrUpdateChart(`chart-${exerciseId}-${repMaxId}`, repMaxData.history);
-                });
-
-                // Clean up any sections that are no longer in the snapshot
-                Array.from(repMaxContainer.children).forEach(child => {
-                    if (!repMaxSections.has(child.id)) {
-                        child.remove();
-                    }
-                });
-            });
-        }
-
-        function createRepMaxSection(exerciseId, repMaxId, repMaxData) {
-            const section = document.createElement('div');
-            section.className = 'bg-gray-100 dark:bg-gray-700 p-4 rounded-md';
-            section.id = `rep-max-section-${repMaxId}`;
-            const chartId = `chart-${exerciseId}-${repMaxId}`;
-
-            section.innerHTML = `
-                <div class="flex justify-between items-center mb-3">
-                    <h4 class="text-lg font-semibold text-gray-800 dark:text-white">${repMaxData.reps}-Rep Max</h4>
-                     <button class="delete-rep-max-btn text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-500 transition duration-300" data-rep-max-id="${repMaxId}">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-                <div class="chart-container mb-4"><canvas id="${chartId}"></canvas></div>
-                <div>
-                    <h5 class="text-md font-medium mb-2 text-gray-600 dark:text-gray-300">Log New Record</h5>
-                    <div class="flex flex-wrap gap-2 items-end">
-                        <input type="number" class="weight-input flex-grow min-w-[100px] bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Weight (kg)">
-                        <input type="date" class="date-input flex-shrink-0 bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <button class="add-record-btn flex-shrink-0 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-3 rounded-md transition duration-300">Log</button>
-                    </div>
-                </div>
-            `;
-            
-            section.querySelector('.date-input').valueAsDate = new Date();
-            const addRecordBtn = section.querySelector('.add-record-btn');
-            const weightInput = section.querySelector('.weight-input');
-            const dateInput = section.querySelector('.date-input');
-
-            addRecordBtn.addEventListener('click', () => {
-                const weight = parseFloat(weightInput.value);
-                if (isNaN(weight) || weight <= 0) {
-                    shakeElement(weightInput);
+            function createOrUpdateChart(chartId, history) {
+                const ctx = document.getElementById(chartId)?.getContext('2d');
+                if (!ctx) return;
+                const recentHistory = history.slice(-10);
+                const labels = recentHistory.map(entry => entry.date);
+                const data = recentHistory.map(entry => entry.weight);
+                const themeOptions = getChartThemeOptions();
+                if (chartInstances[chartId]) {
+                    chartInstances[chartId].data.labels = labels;
+                    chartInstances[chartId].data.datasets[0].data = data;
+                    chartInstances[chartId].update();
                     return;
                 }
-                const date = dateInput.value;
-                if (date) {
-                    addWeightRecord(exerciseId, repMaxId, weight, date);
-                    weightInput.value = '';
-                }
-            });
-            
-            const handleRecordEnter = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addRecordBtn.click();
-                }
-            };
-            weightInput.addEventListener('keydown', handleRecordEnter);
-            dateInput.addEventListener('keydown', handleRecordEnter);
-            section.querySelector('.delete-rep-max-btn').addEventListener('click', () => deleteRepMax(exerciseId, repMaxId, repMaxData.reps));
-            
-            return section;
-        }
-
-        async function deleteRepMax(exerciseId, repMaxId, repCount) {
-            if (!currentUserId) return;
-            showConfirmationModal(
-                `Delete ${repCount}-Rep Max`,
-                'Are you sure you want to delete this rep max tracker?',
-                async () => {
-                    try {
-                       await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId));
-                    } catch (error) {
-                       console.error("Error deleting rep max: ", error);
-                    }
-                }
-            );
-        }
-
-        async function addWeightRecord(exerciseId, repMaxId, weight, date) {
-            if (!currentUserId) return;
-            const repMaxDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId);
-            try {
-                const docSnap = await getDoc(repMaxDocRef);
-                if (docSnap.exists()) {
-                    const currentHistory = docSnap.data().history || [];
-                    const newHistory = [...currentHistory, { weight, date }];
-                    newHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
-                    await updateDoc(repMaxDocRef, { history: newHistory });
-                }
-            } catch (error) {
-                console.error("Error adding weight record: ", error);
-            }
-        }
-
-        // --- Charting Functions ---
-        function getChartThemeOptions() {
-            const isDarkMode = document.documentElement.classList.contains('dark');
-            return {
-                gridColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                ticksColor: isDarkMode ? '#d1d5db' : '#374151',
-                titleColor: isDarkMode ? '#d1d5db' : '#374151',
-            };
-        }
-
-        function updateAllChartThemes() {
-            const themeOptions = getChartThemeOptions();
-            for (const chartId in chartInstances) {
-                const chart = chartInstances[chartId];
-                if(chart) {
-                    chart.options.scales.y.grid.color = themeOptions.gridColor;
-                    chart.options.scales.y.ticks.color = themeOptions.ticksColor;
-                    chart.options.scales.y.title.color = themeOptions.titleColor;
-                    chart.options.scales.x.grid.color = themeOptions.gridColor;
-                    chart.options.scales.x.ticks.color = themeOptions.ticksColor;
-                    chart.update();
-                }
-            }
-        }
-
-        function createOrUpdateChart(chartId, history) {
-            const ctx = document.getElementById(chartId)?.getContext('2d');
-            if (!ctx) return;
-
-            const recentHistory = history.slice(-10);
-            const labels = recentHistory.map(entry => entry.date);
-            const data = recentHistory.map(entry => entry.weight);
-            const themeOptions = getChartThemeOptions();
-
-            if (chartInstances[chartId]) {
-                chartInstances[chartId].data.labels = labels;
-                chartInstances[chartId].data.datasets[0].data = data;
-                chartInstances[chartId].update();
-                return;
-            }
-
-            chartInstances[chartId] = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Weight (kg)',
-                        data: data,
-                        backgroundColor: 'rgba(56, 189, 248, 0.2)',
-                        borderColor: 'rgba(56, 189, 248, 1)',
-                        borderWidth: 2,
-                        tension: 0.1,
-                        pointBackgroundColor: 'rgba(56, 189, 248, 1)',
-                        pointRadius: 4,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    scales: {
-                        y: {
-                            beginAtZero: false,
-                            grid: { color: themeOptions.gridColor },
-                            ticks: { color: themeOptions.ticksColor },
-                            title: { display: true, text: 'Weight (kg)', color: themeOptions.titleColor }
-                        },
-                        x: {
-                            grid: { color: themeOptions.gridColor },
-                            ticks: { color: themeOptions.ticksColor }
-                        }
+                chartInstances[chartId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{ label: 'Weight (kg)', data: data, backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: 'rgba(56, 189, 248, 1)', borderWidth: 2, tension: 0.1, pointBackgroundColor: 'rgba(56, 189, 248, 1)', pointRadius: 4 }]
                     },
-                    plugins: { legend: { display: false } }
+                    options: {
+                        responsive: true, maintainAspectRatio: true,
+                        scales: {
+                            y: { beginAtZero: false, grid: { color: themeOptions.gridColor }, ticks: { color: themeOptions.ticksColor }, title: { display: true, text: 'Weight (kg)', color: themeOptions.titleColor } },
+                            x: { grid: { color: themeOptions.gridColor }, ticks: { color: themeOptions.ticksColor } }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            }
+            
+            // --- Initial UI Setup ---
+            if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+            updateThemeIcons();
+        }
+
+        // --- Polling to Start the App ---
+        const appInitInterval = setInterval(() => {
+            if (typeof __firebase_config !== 'undefined' && typeof __initial_auth_token !== 'undefined') {
+                clearInterval(appInitInterval);
+                try {
+                    main();
+                } catch (e) {
+                    console.error("Failed to initialize the application:", e);
+                    statusPrompt.innerHTML = `<p class="text-red-500">A critical error occurred. Please refresh.</p>`;
                 }
-            });
-        }
-        
-        // --- Initial Setup ---
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-        updateThemeIcons();
+            }
+        }, 100);
+
+        // Add a timeout for user feedback
+        const initTimeout = setTimeout(() => {
+            if (!appInitialized) {
+                clearInterval(appInitInterval);
+                statusPrompt.innerHTML = `<p class="text-red-500">Application failed to load in time. Please check your connection and refresh.</p>`;
+            }
+        }, 15000); // 15 seconds
     </script>
 </body>
 </html>
