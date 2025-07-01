@@ -100,16 +100,33 @@
         let confirmCallback = null;
 
         // --- Auth0 Configuration ---
+        // =================================================================================
+        // === IMPORTANT: Replace these placeholder values with your Auth0 credentials. ===
+        // =================================================================================
         const auth0Config = {
-            domain: "dev-i3a0z68j82ybi2m0.us.auth0.com", // Replace with your Auth0 domain
-            clientId: "rGZdsGk3M2e4z3h13hYdIq2M2vC23lC2", // Replace with your Auth0 Client ID
+            domain: "dev-ecsit0kkov2z311o.us.auth0.com", 
+            clientId: "fa6eFzxdI0RTCqokzvAWHvUZCGMdonFU",
             authorizationParams: {
                 redirect_uri: window.location.origin
             }
         };
+        // =================================================================================
 
         // --- Main Application Logic ---
         window.addEventListener('load', async () => {
+            // Check if the Auth0 configuration is still using placeholder values.
+            if (auth0Config.domain === "dev-ecsit0kkov2z311o.us.auth0.com" || auth0Config.clientId === "fa6eFzxdI0RTCqokzvAWHvUZCGMdonFU") {
+                statusPrompt.innerHTML = `
+                    <div class="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4 max-w-md mx-auto rounded-r-lg" role="alert">
+                      <p class="font-bold">Configuration Needed</p>
+                      <p>Please update the Auth0 domain and client ID in the script with your own credentials to enable login.</p>
+                    </div>
+                `;
+                loginBtn.disabled = true;
+                loginBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                return; // Stop execution if not configured.
+            }
+
             try {
                 auth0Client = await auth0.createAuth0Client(auth0Config);
 
@@ -125,7 +142,7 @@
                 
             } catch (err) {
                 console.error("Error initializing Auth0 client", err);
-                statusPrompt.innerHTML = `<p class="text-red-500">Error initializing authentication. Please refresh.</p>`;
+                statusPrompt.innerHTML = `<p class="text-red-500">Error initializing authentication: ${err.message}. Please check your Auth0 configuration and refresh.</p>`;
             }
         });
 
