@@ -11,8 +11,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Netlify Identity Widget -->
-    <script type="text/javascript" src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .collapsible-content.hidden { display: none; }
@@ -29,7 +27,7 @@
 
     <div class="container mx-auto p-4 md:p-8">
         <header class="text-center mb-8 relative">
-             <div class="absolute top-0 left-0" data-netlify-identity-button></div>
+             <div id="auth-container" class="absolute top-0 left-0 p-2 text-left"></div>
              <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none">
                 <svg id="theme-icon-sun" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.707.707M4.04 19.96l-.707.707M21 12h-1M4 12H3m15.66 8.66l-.707-.707M4.04 4.04l-.707-.707"/></svg>
                 <svg id="theme-icon-moon" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
@@ -52,9 +50,8 @@
             <div id="exercises-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-start"></div>
         </main>
         
-        <div id="login-prompt" class="text-center py-16">
-            <h2 class="text-2xl font-bold mb-4">Welcome!</h2>
-            <p class="text-gray-600 dark:text-gray-400">Please log in or sign up to start tracking your workouts.</p>
+        <div id="status-prompt" class="text-center py-16">
+            <p class="text-gray-600 dark:text-gray-400 text-xl">Authenticating...</p>
         </div>
     </div>
 
@@ -72,9 +69,10 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, addDoc, query, getDocs, deleteDoc, updateDoc, where, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signInWithCustomToken, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, query, getDocs, deleteDoc, updateDoc, where, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // --- Firebase and App Config ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY", authDomain: "YOUR_AUTH_DOMAIN", projectId: "YOUR_PROJECT_ID" };
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
@@ -82,13 +80,17 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        let netlifyUserId = null;
+        // --- Global State ---
+        let currentUserId = null;
         let unsubscribeExercises = () => {};
         const unsubscribeRepMaxes = {};
         let chartInstances = {};
+        let authUnsubscribe = null;
 
+        // --- DOM Elements ---
         const appContent = document.getElementById('app-content');
-        const loginPrompt = document.getElementById('login-prompt');
+        const statusPrompt = document.getElementById('status-prompt');
+        const authContainer = document.getElementById('auth-container');
         const exercisesContainer = document.getElementById('exercises-container');
         const addExerciseBtn = document.getElementById('add-exercise-btn');
         const newExerciseNameInput = document.getElementById('new-exercise-name');
@@ -96,36 +98,54 @@
         const sunIcon = document.getElementById('theme-icon-sun');
         const moonIcon = document.getElementById('theme-icon-moon');
         
-        // --- Netlify Identity Event Listeners ---
-        netlifyIdentity.on('init', user => {
+        // --- Authentication ---
+        authUnsubscribe = onAuthStateChanged(auth, user => {
             if (user) {
-                handleLogin(user);
+                // User is signed in.
+                currentUserId = user.uid;
+                appContent.classList.remove('hidden');
+                statusPrompt.classList.add('hidden');
+                
+                const userIdentifier = user.isAnonymous ? 'Guest' : `UID: ${user.uid.substring(0, 8)}...`;
+                authContainer.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-gray-500 dark:text-gray-400">${userIdentifier}</span>
+                        <button id="logout-btn" class="text-sm bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-1 px-2 rounded-md transition duration-300">Logout</button>
+                    </div>
+                `;
+                document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+                
+                loadExercises();
             } else {
-                handleLogout();
+                // User is signed out.
+                currentUserId = null;
+                appContent.classList.add('hidden');
+                statusPrompt.classList.remove('hidden');
+                statusPrompt.innerHTML = '<p class="text-gray-600 dark:text-gray-400 text-xl">Please refresh to sign in.</p>';
+                authContainer.innerHTML = '';
+                
+                // Clear UI and unsubscribe from listeners
+                unsubscribeExercises();
+                Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
+                exercisesContainer.innerHTML = '';
+                chartInstances = {};
             }
         });
 
-        netlifyIdentity.on('login', handleLogin);
-        netlifyIdentity.on('logout', handleLogout);
-
-        function handleLogin(user) {
-            netlifyUserId = user.id;
-            appContent.classList.remove('hidden');
-            loginPrompt.classList.add('hidden');
-            loadExercises();
-        }
-
-        function handleLogout() {
-            netlifyUserId = null;
-            appContent.classList.add('hidden');
-            loginPrompt.classList.remove('hidden');
-            
-            // Clear UI and unsubscribe from listeners
-            unsubscribeExercises();
-            Object.values(unsubscribeRepMaxes).forEach(unsub => unsub());
-            exercisesContainer.innerHTML = '';
-            chartInstances = {};
-        }
+        // Initial sign-in attempt on page load.
+        (async () => {
+            try {
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    await signInWithCustomToken(auth, token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication error:", error);
+                statusPrompt.innerHTML = `<p class="text-red-500">Authentication failed. Please refresh the page.</p>`;
+            }
+        })();
 
         // --- Modal ---
         const modal = document.getElementById('confirmation-modal');
@@ -171,6 +191,7 @@
         
         themeToggleButton.addEventListener('click', () => {
             document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
             updateThemeIcons();
             updateAllChartThemes();
         });
@@ -187,14 +208,14 @@
         // --- Firestore Functions ---
 
         async function addExercise() {
-            if (!netlifyUserId) return;
+            if (!currentUserId) return;
             const exerciseName = newExerciseNameInput.value.trim();
             if (!exerciseName) {
                 shakeElement(newExerciseNameInput);
                 return;
             }
 
-            const exerciseRef = collection(db, `artifacts/${appId}/users/${netlifyUserId}/exercises`);
+            const exerciseRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`);
             const q = query(exerciseRef, where("name_lowercase", "==", exerciseName.toLowerCase()));
             const querySnapshot = await getDocs(q);
 
@@ -216,11 +237,10 @@
         }
 
         function loadExercises() {
-            if (!netlifyUserId) return;
-            // Unsubscribe from previous user's data if any
-            unsubscribeExercises();
+            if (!currentUserId) return;
+            unsubscribeExercises(); // Unsubscribe from previous user's data if any
 
-            const exercisesQuery = query(collection(db, `artifacts/${appId}/users/${netlifyUserId}/exercises`), orderBy("createdAt", "asc"));
+            const exercisesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises`), orderBy("createdAt", "asc"));
             
             unsubscribeExercises = onSnapshot(exercisesQuery, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
@@ -307,18 +327,18 @@
             });
         }
 
-        function deleteExercise(exerciseId, exerciseName) {
+        async function deleteExercise(exerciseId, exerciseName) {
+            if (!currentUserId) return;
             showConfirmationModal(
                 `Delete ${exerciseName}`,
                 'Are you sure you want to delete this exercise and all its data? This action cannot be undone.',
                 async () => {
-                    if (!netlifyUserId) return;
                     try {
-                        const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${netlifyUserId}/exercises/${exerciseId}/repMaxes`));
+                        const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`));
                         const repMaxesSnapshot = await getDocs(repMaxesQuery);
                         const deletePromises = repMaxesSnapshot.docs.map(doc => deleteDoc(doc.ref));
                         await Promise.all(deletePromises);
-                        await deleteDoc(doc(db, `artifacts/${appId}/users/${netlifyUserId}/exercises`, exerciseId));
+                        await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises`, exerciseId));
                     } catch (error) {
                         console.error("Error deleting exercise: ", error);
                     }
@@ -327,14 +347,14 @@
         }
 
         async function addRepMax(exerciseId, repMaxInput) {
-            if (!netlifyUserId) return;
+            if (!currentUserId) return;
             const reps = parseInt(repMaxInput.value);
             if (isNaN(reps) || reps <= 0) {
                 shakeElement(repMaxInput);
                 return;
             }
 
-            const repMaxRef = collection(db, `artifacts/${appId}/users/${netlifyUserId}/exercises/${exerciseId}/repMaxes`);
+            const repMaxRef = collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`);
             const q = query(repMaxRef, where("reps", "==", reps));
             const querySnapshot = await getDocs(q);
 
@@ -352,24 +372,47 @@
         }
 
         function loadRepMaxes(exerciseId) {
-            if (!netlifyUserId) return;
+            if (!currentUserId) return;
             if (unsubscribeRepMaxes[exerciseId]) unsubscribeRepMaxes[exerciseId]();
 
             const repMaxContainer = document.getElementById(`rep-max-container-${exerciseId}`);
-            const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${netlifyUserId}/exercises/${exerciseId}/repMaxes`), orderBy("reps", "asc"));
+            const repMaxesQuery = query(collection(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`), orderBy("reps", "asc"));
 
             unsubscribeRepMaxes[exerciseId] = onSnapshot(repMaxesQuery, (snapshot) => {
-                repMaxContainer.innerHTML = '';
-                snapshot.forEach((doc) => {
-                    createRepMaxSection(exerciseId, doc.id, doc.data());
+                const repMaxSections = new Set();
+                snapshot.docChanges().forEach((change) => {
+                    const repMaxId = change.doc.id;
+                    const repMaxData = change.doc.data();
+                    const sectionId = `rep-max-section-${repMaxId}`;
+                    repMaxSections.add(sectionId);
+
+                    let section = document.getElementById(sectionId);
+                    if (change.type === "removed") {
+                        if (section) section.remove();
+                        return;
+                    }
+                    
+                    if (!section) {
+                        section = createRepMaxSection(exerciseId, repMaxId, repMaxData);
+                        repMaxContainer.appendChild(section);
+                    }
+                    
+                    createOrUpdateChart(`chart-${exerciseId}-${repMaxId}`, repMaxData.history);
+                });
+
+                // Clean up any sections that are no longer in the snapshot
+                Array.from(repMaxContainer.children).forEach(child => {
+                    if (!repMaxSections.has(child.id)) {
+                        child.remove();
+                    }
                 });
             });
         }
 
         function createRepMaxSection(exerciseId, repMaxId, repMaxData) {
-            const repMaxContainer = document.getElementById(`rep-max-container-${exerciseId}`);
             const section = document.createElement('div');
             section.className = 'bg-gray-100 dark:bg-gray-700 p-4 rounded-md';
+            section.id = `rep-max-section-${repMaxId}`;
             const chartId = `chart-${exerciseId}-${repMaxId}`;
 
             section.innerHTML = `
@@ -389,8 +432,7 @@
                     </div>
                 </div>
             `;
-            repMaxContainer.appendChild(section);
-
+            
             section.querySelector('.date-input').valueAsDate = new Date();
             const addRecordBtn = section.querySelector('.add-record-btn');
             const weightInput = section.querySelector('.weight-input');
@@ -418,18 +460,18 @@
             weightInput.addEventListener('keydown', handleRecordEnter);
             dateInput.addEventListener('keydown', handleRecordEnter);
             section.querySelector('.delete-rep-max-btn').addEventListener('click', () => deleteRepMax(exerciseId, repMaxId, repMaxData.reps));
-
-            createOrUpdateChart(chartId, repMaxData.history);
+            
+            return section;
         }
 
-        function deleteRepMax(exerciseId, repMaxId, repCount) {
+        async function deleteRepMax(exerciseId, repMaxId, repCount) {
+            if (!currentUserId) return;
             showConfirmationModal(
                 `Delete ${repCount}-Rep Max`,
                 'Are you sure you want to delete this rep max tracker?',
                 async () => {
-                    if (!netlifyUserId) return;
                     try {
-                       await deleteDoc(doc(db, `artifacts/${appId}/users/${netlifyUserId}/exercises/${exerciseId}/repMaxes`, repMaxId));
+                       await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId));
                     } catch (error) {
                        console.error("Error deleting rep max: ", error);
                     }
@@ -438,8 +480,8 @@
         }
 
         async function addWeightRecord(exerciseId, repMaxId, weight, date) {
-            if (!netlifyUserId) return;
-            const repMaxDocRef = doc(db, `artifacts/${appId}/users/${netlifyUserId}/exercises/${exerciseId}/repMaxes`, repMaxId);
+            if (!currentUserId) return;
+            const repMaxDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/exercises/${exerciseId}/repMaxes`, repMaxId);
             try {
                 const docSnap = await getDoc(repMaxDocRef);
                 if (docSnap.exists()) {
@@ -453,6 +495,7 @@
             }
         }
 
+        // --- Charting Functions ---
         function getChartThemeOptions() {
             const isDarkMode = document.documentElement.classList.contains('dark');
             return {
@@ -486,7 +529,12 @@
             const data = recentHistory.map(entry => entry.weight);
             const themeOptions = getChartThemeOptions();
 
-            if (chartInstances[chartId]) chartInstances[chartId].destroy();
+            if (chartInstances[chartId]) {
+                chartInstances[chartId].data.labels = labels;
+                chartInstances[chartId].data.datasets[0].data = data;
+                chartInstances[chartId].update();
+                return;
+            }
 
             chartInstances[chartId] = new Chart(ctx, {
                 type: 'line',
@@ -523,6 +571,12 @@
             });
         }
         
+        // --- Initial Setup ---
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
         updateThemeIcons();
     </script>
 </body>
